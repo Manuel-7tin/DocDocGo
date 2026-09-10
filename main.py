@@ -2,17 +2,17 @@ from dotenv import load_dotenv
 import re
 import ast
 from groq import Groq
+from typing import cast
 
 load_dotenv()
-
+MAX_CHAR = 15_000
+MAX_CUMULATIVE_CHAR = 4_500
+MAX_BATCH_SIZE = 3
 
 def has_documentation(function_string: str) -> bool:
-    print(function_string[:15], end=" ")
     try:
         tree = ast.parse(function_string.strip(" "))
     except SyntaxError:
-        print("\n", function_string)
-        print("Syntax Error")
         return False
 
     for node in ast.walk(tree):
@@ -98,8 +98,9 @@ def insert_documentation(function: str, documentation: str) -> str:
     )
     if not lines:
         return documentation
+    # print("ranr", lines[-1])
 
-    return "\n".join([*lines[:index+1], documentation, *lines[index+1:]])
+    return "\n".join([*lines[:index+1], documentation, *lines[index+1:-1], lines[-1]+"\n"])
 
 def get_class(content: str) -> tuple[list[str], str]:
     functions = get_funcs(content, target="class")
@@ -130,12 +131,36 @@ pre_filter.extend(classes)
 pre_filter.extend(methods)
 pre_filter.extend(funcions)
 
-filtered = []
+filtered = {}
+batched = []
+track = MAX_BATCH_SIZE
+id = 0
+
 for obj in pre_filter:
     if has_documentation(obj):
         print("Has doc")
-        continue
-    filtered.append(obj)
+        # continue
+    elif len(obj) > MAX_CHAR:
+        print("Function too large!!")
+    else:
+        # filtered.append(obj)
+        if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
+            batched.append(f"obj_{id}\n{obj}")
+            filtered[f"obj_{id}"] = obj
+            track = 1
+        else:   #I.e len(batched[-1]) + len(obj) <= MAX_CHAR:
+            batched[-1] += f"\n\nobj_{id}\n{obj}"
+            filtered[f"obj_{id}"] = obj
+            track += 1
+        id += 1
+print(len(batched))
+print(len(filtered))
+# for i in batched:
+#     print(i)
+#     print("\n------------_______-----------\n")
+# for i in filtered:
+#     print(i)
+#     print("\n------------_______-----------\n")
 with open("notes.txt", mode="w") as notes:
     for i in filtered:
         notes.write(i)
@@ -157,20 +182,24 @@ Use the Google documentation style
 Write a complete, accurate, and concise docstring appropriate for production code.
 
 Return the documentation only. Do not return or reproduce the Python function or include `def func()`).
+Your response should contain the  id of the object the string belongs to, the style and docstring itself as shown in the example below.
 
 Return the result as a JSON object with exactly these fields:
 
+[
 {
+    "id": "obj_1",
     "style": "Google",
     "docstring": "Prints users desire.\n\nArgs:..."
-}
+},
+.
+.
+]
 """
 
-# print(len(funcs))
 updated_code = content
 
-
-for func in filtered:
+for func in batched:
     # print(func)
     completion = client.chat.completions.create(
         model="openai/gpt-oss-120b",
@@ -195,14 +224,21 @@ for func in filtered:
 
     response = completion.choices[0].message.content
     print(response)
-    res = ast.literal_eval(response)
+    try:
+        res = ast.literal_eval(response)
+    except SyntaxError as err:
+        print("Syntax Error:", err)
+        exit()
 
-    docs = res.get("docstring")
-    docs = docs.removeprefix('\"\"\"')
-    docs = docs[:-2].removesuffix('\"\"\"') + docs[-2:]
+    for doc in res:
+        docs = doc.get("docstring")
+        docs = docs.removeprefix('\"\"\"')
+        docs = docs[:-2].removesuffix('\"\"\"') + docs[-2:]
+        old_obj = filtered.get(doc.get("id", ""))
 
-    new_func = insert_documentation(func, docs)
-    updated_code = replace_multiline_string(func, updated_code, new_func)
+        new_func = insert_documentation(cast(str, old_obj), docs)
+        updated_code = replace_multiline_string(cast(str, old_obj), updated_code, new_func)
+
     # print(func)
     # print(new_func)
     # print(updated_code)
