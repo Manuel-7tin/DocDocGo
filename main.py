@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 import re
 import ast
+import json
 from groq import Groq
 from typing import cast
 
@@ -130,7 +131,6 @@ def get_sub(content: str, target: str):
 # Read source code
 with open("app_test.py", mode="r") as py_file:
     content = py_file.read()
-    # print(content)
 
 # Read classes
 classes, new_content = get_class(content)
@@ -141,7 +141,6 @@ for class_ in classes.copy():
     methods.extend(get_funcs(class_, target="function"))
     sub_classes = get_sub(class_, "class")
     classes.extend(sub_classes)
-# print(methods)
 
 # Read functions
 functions = get_funcs(new_content)
@@ -159,7 +158,7 @@ pre_filter.extend(functions)
 filtered = {}
 batched = []
 track = MAX_BATCH_SIZE
-id = 0
+id_ = 0
 
 for obj in pre_filter:
     if has_documentation(obj):
@@ -168,19 +167,14 @@ for obj in pre_filter:
         print("Function too large!!")
     else:
         if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
-            batched.append(f"obj_{id}\n{obj}")
-            filtered[f"obj_{id}"] = obj
+            batched.append(f"obj_{id_}\n{obj}")
+            filtered[f"obj_{id_}"] = obj
             track = 1
         else:   #I.e len(batched[-1]) + len(obj) <= MAX_CHAR:
-            batched[-1] += f"\n\nobj_{id}\n{obj}"
-            filtered[f"obj_{id}"] = obj
+            batched[-1] += f"\n\nobj_{id_}\n{obj}"
+            filtered[f"obj_{id_}"] = obj
             track += 1
-        id += 1
-print(len(batched))
-print(len(filtered))
-# for i in functions:
-#     print(i)
-#     print("-----------------------")
+        id_ += 1
 
 with open("notes.txt", mode="w") as notes:
     for i in filtered:
@@ -219,9 +213,11 @@ Return the result as a JSON object with exactly these fields:
 """
 
 updated_code = content
-
+print(len(batched))
 for func in batched:
+    # print("in")
     # print(func)
+    # noinspection bad-argument-type
     completion = client.chat.completions.create(
         model="openai/gpt-oss-120b",
         messages=[
@@ -236,22 +232,64 @@ for func in batched:
             }
         ],
         temperature=0.4,
-        max_completion_tokens=2048,
+        max_completion_tokens=4096,
         top_p=1,
         reasoning_effort="medium",
         stream=False,
-        stop=None
+        stop=None,
+
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "documentation_response",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "style": {
+                                        "type": "string"
+                                    },
+                                    "docstring": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "id",
+                                    "style",
+                                    "docstring"
+                                ],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": [
+                        "items"
+                    ],
+                    "additionalProperties": False
+                }
+            }
+        }
     )
 
     response = completion.choices[0].message.content
     print(response)
-    try:
-        res = ast.literal_eval(response)
-    except SyntaxError as err:
-        print("Syntax Error:", err)
-        exit()
+    res = json.loads(response)
+    print(res)
+    # try:
+    #     res = ast.literal_eval(response)
+    # except SyntaxError as err:
+    #     print("Syntax Error:", err)
+    #     exit()
 
-    for doc in res:
+    for doc in res.get("items", []):
         docs = doc.get("docstring")
         docs = docs.removeprefix('\"\"\"')
         docs = docs[:-2].removesuffix('\"\"\"') + docs[-2:]
