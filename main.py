@@ -109,6 +109,24 @@ def get_class(content: str) -> tuple[list[str], str]:
         new_content = replace_multiline_string(func, new_content, "")
     return (functions, new_content)
 
+def get_sub(content: str, target: str):
+    # target should be either "function" or "class"
+    try:
+        next_line = content.index(":")
+        functions_ = get_funcs(content[next_line:], target)
+        # split_content = content.split("\n", 1)[1]
+        # functions_ = get_funcs(split_content, target)
+        value = []
+        # print(functions)
+        for func_ in functions_:
+            value.append(func_)
+            value.extend(get_sub(func_, target))
+    except ValueError:
+        return []
+    else:
+        return value
+
+
 # Read source code
 with open("app_test.py", mode="r") as py_file:
     content = py_file.read()
@@ -117,19 +135,26 @@ with open("app_test.py", mode="r") as py_file:
 # Read classes
 classes, new_content = get_class(content)
 
-# Read methods
+# Read methods and subclasses
 methods = []
-for class_ in classes:
+for class_ in classes.copy():
     methods.extend(get_funcs(class_, target="function"))
+    sub_classes = get_sub(class_, "class")
+    classes.extend(sub_classes)
 # print(methods)
 
 # Read functions
-funcions = get_funcs(new_content)
+functions = get_funcs(new_content)
+i = 0
+for func in functions.copy():
+    sub_func = get_sub(func, "function")
+    functions.extend(sub_func)
+    i += 1
 
 pre_filter = []
 pre_filter.extend(classes)
 pre_filter.extend(methods)
-pre_filter.extend(funcions)
+pre_filter.extend(functions)
 
 filtered = {}
 batched = []
@@ -139,11 +164,9 @@ id = 0
 for obj in pre_filter:
     if has_documentation(obj):
         print("Has doc")
-        # continue
     elif len(obj) > MAX_CHAR:
         print("Function too large!!")
     else:
-        # filtered.append(obj)
         if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
             batched.append(f"obj_{id}\n{obj}")
             filtered[f"obj_{id}"] = obj
@@ -155,12 +178,10 @@ for obj in pre_filter:
         id += 1
 print(len(batched))
 print(len(filtered))
-# for i in batched:
+# for i in functions:
 #     print(i)
-#     print("\n------------_______-----------\n")
-# for i in filtered:
-#     print(i)
-#     print("\n------------_______-----------\n")
+#     print("-----------------------")
+
 with open("notes.txt", mode="w") as notes:
     for i in filtered:
         notes.write(i)
@@ -239,14 +260,6 @@ for func in batched:
         new_func = insert_documentation(cast(str, old_obj), docs)
         updated_code = replace_multiline_string(cast(str, old_obj), updated_code, new_func)
 
-    # print(func)
-    # print(new_func)
-    # print(updated_code)
-    # break
-
-# print(new_func)
-# print("---------------------")
-# print(updated_code)
 with open("app_test.py", mode="w") as py_file:
     py_file.write(updated_code)
 

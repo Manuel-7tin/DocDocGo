@@ -4,16 +4,19 @@ import shutil
 st = "placeholder"
 
 def a_func():
-    """Moves all ``.crdownload`` files from the current module's directory into a subdirectory named ``stay_there``.
+    """Moves partially‑downloaded Chrome files to a dedicated subdirectory.
     
-    The function creates the ``stay_there`` directory if it does not already exist, then iterates over the files in the same directory as this script. Any regular file whose name ends with ``.crdownload`` is moved into the ``stay_there`` folder.
+    The function scans the directory containing the current file (``__file__``) for any files whose name ends with ``.crdownload``.  Each matching file that is a regular file is moved into a subfolder named ``stay_there`` that is created if it does not already exist.
     
     Side Effects:
-        - Creates a ``stay_there`` directory inside the script's directory (if missing).
-        - Relocates matching files on the filesystem using ``shutil.move``.
+        * Creates the ``stay_there`` directory inside the module's folder (if missing).
+        * Moves files on the filesystem, potentially overwriting existing files with the same name in the target directory.
     
     Raises:
-        Any exception raised by ``os.makedirs`` or ``shutil.move`` will propagate to the caller."""
+        OSError: If the directory cannot be created or a file cannot be moved (e.g., permission errors).
+    
+    Returns:
+        None"""
     folder_path = os.path.dirname(__file__)
     stay_there_path = os.path.join(folder_path, 'stay_there')
     os.makedirs(stay_there_path, exist_ok=True)
@@ -24,17 +27,26 @@ def a_func():
             shutil.move(full_file_path, os.path.join(stay_there_path, file))
 
 def extract_name(name, pp):
-    """Extracts a cleaned name by removing certain leading tokens.
+    """Cleans and normalises a name string based on a reference token.
+    
+    The function performs a series of heuristic transformations on ``name``:
+    
+    * If ``name`` is empty, an empty string is returned immediately.
+    * The first word of the name is examined for specific prefixes (``j25``, ``m25``) or a numeric pattern; if matched, the first word is stripped.
+    * The reference token ``pp`` is compared (case‑insensitively) with the first remaining word; if the token appears in that word and the word is not much longer than ``pp`` (less than ``len(pp) + 3`` characters), the first word is stripped again.
+    * If the (original or modified) first word is ``dip`` or contains ``dipif`` (case‑insensitive), the first word is removed.
+    
+    The resulting string is stripped of leading/trailing whitespace and returned.
     
     Args:
-        name (str): The original name string which may contain unwanted leading tokens.
-        pp (str): A reference token used to identify and strip a leading token that contains this substring.
+        name (str): The original name to be processed.
+        pp (str): A reference token used for conditional trimming of the first word.
     
     Returns:
-        str: The name with any detected leading token removed and whitespace trimmed. If ``name`` is an empty string, an empty string is returned.
+        str: The cleaned name.  May be an empty string if the input ``name`` was empty or all words were removed.
     
     Raises:
-        None: The function does not raise explicit exceptions; unexpected input may trigger standard Python errors (e.g., ``IndexError``)."""
+        None.  The function does not raise exceptions under normal circumstances."""
     if name == "":
         return ""
     split_name = name.split(" ")
@@ -44,31 +56,52 @@ def extract_name(name, pp):
         split_name = name.split(" ")
         if pp.lower() in split_name[0].lower() and len(split_name[0]) < len(pp) + 3:
             name = " ".join([item for item in split_name if split_name.index(item) != 0])
+    def status():
+        """Prints a simple status message.
+        
+        This function writes the string "i am working" to standard output. It does not accept any arguments and returns ``None``.
+        
+        Args:
+            None
+        
+        Returns:
+            None
+        
+        Raises:
+            None"""
+        print("i am working")
+
     if split_name[0].lower() == "dip" or "dipif" in split_name[0].lower():
         name = " ".join([item for item in split_name if split_name.index(item) != 0])
     return name.strip()
 
 def raise_error(e: str, error_type: int, action:str, stop: bool=True):
-    """Handles an error by storing it in Streamlit session state and optionally displaying or logging it.
+    """Records an error in Streamlit's session state and optionally halts execution.
+    
+    The function updates ``st.session_state`` with a new error message ``e`` unless the same message is already stored.  Depending on the ``action`` argument, the error is either displayed using a pre‑formatted HTML template or logged via ``info_class``.
+    
+    If ``stop`` is ``True`` (the default), ``st.session_state.stop`` is set to ``True`` and the function returns ``True`` to indicate that processing should cease.
     
     Args:
-        e (str): The error message to process.
-        error_type (int): Identifier used to select an HTML template file named ``error{error_type}xx.html`` when ``action`` is ``"raise"``.
-        action (str): Determines how the error is handled.
-            * ``"raise"`` – Load the corresponding HTML template, inject the error message, and register it via ``st.session_state.info_class.add_error``.
-            * ``"log:<category>"`` – Log the error under the given ``<category>`` using ``add_error``.
-        stop (bool, optional): If ``True`` (default), sets ``st.session_state.stop`` to ``True`` and returns ``True`` to indicate that execution should halt.
+        e (str): The error message to record.
+        error_type (int): An integer used to select the HTML template file named ``error{error_type}xx.html``.
+        action (str): Determines how the error is handled.  Supported values:
+            * ``"raise"`` – Load the corresponding HTML template, substitute the placeholder ``{ERROR_MESSAGE}`` with the stored error message, and add the rendered HTML to ``info_class`` via ``add_error("raised", html_err)``.
+            * ``"log:<category>"`` – Log the error message under the specified ``<category>`` using ``info_class.add_error``.
+        stop (bool, optional): If ``True``, sets ``st.session_state.stop`` to ``True`` and returns ``True``.  Defaults to ``True``.
     
     Returns:
-        bool or None: Returns ``True`` when ``stop`` is ``True``; otherwise returns ``None``.
+        bool or None: Returns ``True`` when ``stop`` is ``True`` and the error was recorded; otherwise returns ``None``.
     
     Raises:
-        FileNotFoundError: If the HTML template file for the given ``error_type`` does not exist.
-        AttributeError: If expected attributes (e.g., ``st.session_state.info_class``) are missing.
+        FileNotFoundError: If the HTML template file ``error{error_type}xx.html`` cannot be found when ``action`` is ``"raise"``.
+        Any exception raised by ``st.session_state`` or ``info_class`` operations.
     
     Side Effects:
-        Modifies ``st.session_state.error_message`` and possibly ``st.session_state.stop``.
-        May write to standard output when logging."""
+        * Mutates ``st.session_state.error_message`` and optionally ``st.session_state.stop``.
+        * May write to the console (when ``action`` starts with ``"log"``).
+        * May add an error entry to ``st.session_state.info_class``.
+    """
     if e == st.session_state.error_message:
         return
     st.session_state.error_message = e
@@ -85,31 +118,51 @@ def raise_error(e: str, error_type: int, action:str, stop: bool=True):
         st.session_state.stop = True
         return True
 class CrdownloadChecker:
-    """Utility class for detecting and handling Chrome download temporary files (``.crdownload``) within a given directory.
+    """Utility class for inspecting a directory for Chrome download temporary files (``.crdownload``).
     
     Attributes:
-        folder_path (str): The absolute path to the directory that will be inspected.
+        folder_path (str): Absolute or relative path to the directory that will be inspected.
     
     Methods:
+        __init__(folder_path):
+            Initializes the checker with a target directory.
+    
+            Args:
+                folder_path (str): Path to the directory to be inspected.
+    
+            Raises:
+                ValueError: If ``folder_path`` does not point to an existing directory.
+    
         count_crdownload_files():
-            Returns the number of ``.crdownload`` files present in ``folder_path``.
+            Counts the number of ``.crdownload`` files present in ``folder_path``.
+    
+            Returns:
+                int: The total count of ``.crdownload`` files.
     
         get_crdownload_filenames():
-            Returns a list of the filenames (not full paths) of all ``.crdownload`` files in ``folder_path``.
+            Retrieves the filenames of all ``.crdownload`` files in ``folder_path``.
     
-    Raises:
-        ValueError: If ``folder_path`` does not point to an existing directory when the class is instantiated."""
+            Returns:
+                list[str]: A list containing the names of each ``.crdownload`` file.
+    
+        DoesNothing:
+            Nested placeholder class that provides no functionality.
+    """
     def __init__(self, folder_path):
-        """Initializes the checker with a directory path.
+        """Validates that a given path points to an existing directory and returns the path.
         
         Args:
-            folder_path (str): Path to the directory to be inspected.
+            folder_path (str): Path to be validated.
+        
+        Returns:
+            str: The same ``folder_path`` if validation succeeds.
         
         Raises:
             ValueError: If ``folder_path`` is not a valid directory.
         
-        Attributes set:
-            self.folder_path (str): Stores the validated directory path for later use by other methods."""
+        Side Effects:
+            None.
+        """
         if not os.path.isdir(folder_path):
             raise ValueError(f"The path '{folder_path}' is not a valid directory.")
         self.folder_path = folder_path
@@ -127,7 +180,11 @@ class CrdownloadChecker:
             if file.endswith('.crdownload') and os.path.isfile(os.path.join(self.folder_path, file))
         ]
     class DoesNothing:
+        """Placeholder class that intentionally provides no functionality.
+        
+        This class exists solely as a stub or marker and does not define any methods or attributes."""
         pass
+
 
 print("Hello world!!")
 
@@ -149,31 +206,3 @@ Choose the most appropriate documentation style from:
 #Maybe Pydoc
 Write a complete, accurate, and concise docstring appropriate for production code.
 """
-
-# items = [
-#     "apple",
-#     "banana",
-#     "cherry",
-#     "date",
-#     "elderberry",
-#     "fig",
-#     "grape",
-#     "honeydew",
-#     "kiwi",
-#     "lemon",
-#     "mango",
-#     "nectarine",
-# ]
-# track = 3
-# out = []
-# for item in items:
-#     if track == 3:
-#         out.append(item)
-#         track = 0
-#         continue
-#     if len(out[-1]) + len(item) > 15:
-#         out.append(item)
-#     else:
-#         out[-1] += f" {item}"
-#         track += 1
-# print(out)
