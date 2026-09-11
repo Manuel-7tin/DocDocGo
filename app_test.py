@@ -4,12 +4,9 @@ import shutil
 st = "placeholder"
 
 def a_func():
-    """Moves all Chrome download temporary files (.crdownload) from the directory of the current file into a subdirectory named ``stay_there``.
+    """Creates a 'stay_there' subdirectory next to the current file and moves any partially downloaded Chrome files (.crdownload) from the current directory into it.
     
-    The function creates the ``stay_there`` directory if it does not already exist.
-    
-    Returns:
-        None"""
+    This function has no parameters and returns ``None``. It may raise ``OSError`` if the directory cannot be created or files cannot be moved."""
     folder_path = os.path.dirname(__file__)
     stay_there_path = os.path.join(folder_path, 'stay_there')
     os.makedirs(stay_there_path, exist_ok=True)
@@ -20,25 +17,17 @@ def a_func():
             shutil.move(full_file_path, os.path.join(stay_there_path, file))
 
 def extract_name(name, pp):
-    """Cleans a name string by removing leading tokens that match specific patterns.
-    
-    The function removes the first word of *name* when any of the following conditions are met:
-    
-    * The first token starts with ``j25`` or ``m25`` (case‑insensitive) or its second and third characters are digits.
-    * The first token contains the *pp* substring (case‑insensitive) and its length is less than ``len(pp) + 3``.
-    * After the loop, the first token is exactly ``dip`` or contains ``dipif`` (case‑insensitive).
-    
-    The cleaning process is performed up to two passes. The resulting string is stripped of surrounding whitespace.
+    """Extracts and normalizes a name based on specific prefix rules and a reference string.
     
     Args:
-        name: The original name string to be processed.
-        pp: A reference substring used in one of the removal heuristics.
+        name (str): The original name string to process. If empty, an empty string is returned.
+        pp (str): A reference substring used to adjust the name when it appears at the start of the split name.
     
     Returns:
-        The cleaned name string. If *name* is empty, an empty string is returned.
+        str: The processed name with leading elements removed according to the rules, stripped of surrounding whitespace.
     
     Raises:
-        IndexError: If the cleaning logic removes all tokens, subsequent indexing of ``split_name[0]`` will raise an error."""
+        IndexError: If the input ``name`` does not contain any whitespace-separated tokens after processing."""
     if name == "":
         return ""
     split_name = name.split(" ")
@@ -49,12 +38,9 @@ def extract_name(name, pp):
         if pp.lower() in split_name[0].lower() and len(split_name[0]) < len(pp) + 3:
             name = " ".join([item for item in split_name if split_name.index(item) != 0])
     def status():
-        """Prints a status message to standard output.
-        
-        This function prints the literal string "i am working". It does not return a value.
-        
-        Returns:
-            None"""
+        """Prints a status message indicating the function is operational.
+
+        This function has no arguments and returns ``None``. It writes the string ``"i am working"`` to standard output."""
         print("i am working")
 
     if split_name[0].lower() == "dip" or "dipif" in split_name[0].lower():
@@ -62,27 +48,25 @@ def extract_name(name, pp):
     return name.strip()
 
 def raise_error(e: str, error_type: int, action:str, stop: bool=True):
-    """Updates Streamlit session state with an error message and optionally displays or logs the error.
-    
-    The function compares the supplied error message *e* with the current ``st.session_state.error_message``. If they differ, the session state is updated and one of two actions is performed:
-    
-    * ``action == "raise"`` – Loads an HTML template file named ``error{error_type}xx.html``, substitutes the placeholder ``{ERROR_MESSAGE}`` with the current error message, and registers the rendered HTML via ``st.session_state.info_class.add_error`` with the label ``"raised"``.
-    * ``action`` starts with ``"log"`` – Logs the error by calling ``st.session_state.info_class.add_error`` with the label taken from the part after the colon (e.g., ``"log:warning"`` yields the label ``"warning"``) and the raw error message.
-    
-    If *stop* is ``True`` (default), the function sets ``st.session_state.stop`` to ``True`` and returns ``True`` to indicate that execution should be halted.
+    """Handles error reporting within a Streamlit application by updating session state, optionally displaying an HTML error page, logging, and optionally halting execution.
     
     Args:
-        e: The error message to record.
-        error_type: An integer used to select the HTML template file.
-        action: Determines how the error is handled – ``"raise"`` to display, or a string beginning with ``"log"`` to record.
-        stop: If ``True``, sets ``st.session_state.stop`` to ``True`` and returns ``True``; otherwise no stop flag is set.
+        e (str): The error message to handle.
+        error_type (int): Identifier used to select the HTML template file (e.g., ``error{error_type}xx.html``).
+        action (str): Determines how the error is processed. ``"raise"`` loads and displays the HTML template; strings starting with ``"log"`` log the error with a category extracted after the colon.
+        stop (bool, optional): If ``True`` (default), sets ``st.session_state.stop`` to ``True`` and causes the function to return ``True`` after handling the error.
     
     Returns:
-        ``True`` if *stop* is ``True`` and the error was processed; otherwise ``None``.
+        bool | None: Returns ``True`` when ``stop`` is ``True`` and the error is processed; otherwise returns ``None``.
+    
+    Side Effects:
+        * Updates ``st.session_state.error_message`` and possibly ``st.session_state.stop``.
+        * May read an HTML template file from the filesystem.
+        * Calls ``st.session_state.info_class.add_error`` to record the error.
+        * Prints ``"logging"`` to standard output when logging.
     
     Raises:
-        FileNotFoundError: If the HTML template file ``error{error_type}xx.html`` does not exist when ``action == "raise"``.
-        Any exception raised by ``st.session_state.info_class.add_error`` or by the underlying Streamlit session state operations."""
+        FileNotFoundError: If the HTML template file for the given ``error_type`` does not exist when ``action`` is ``"raise"``."""
     if e == st.session_state.error_message:
         return
     st.session_state.error_message = e
@@ -99,23 +83,24 @@ def raise_error(e: str, error_type: int, action:str, stop: bool=True):
         st.session_state.stop = True
         return True
 class CrdownloadChecker:
-    """Utility for counting and listing .crdownload files in a directory.
-    
-    Args:
-        folder_path (str): Path to the directory to be inspected. Must be an existing directory.
+    """Utility class for detecting and counting incomplete Chrome download files (.crdownload) within a directory.
     
     Attributes:
-        folder_path (str): The validated directory path.
+        folder_path (str): Path to the directory being inspected.
     
     Methods:
-        count_crdownload_files(): Returns the number of .crdownload files in the directory.
-        get_crdownload_filenames(): Returns a list of .crdownload filenames in the directory."""
+        count_crdownload_files():
+            Returns:
+                int: Number of .crdownload files in `folder_path`.
+    
+        get_crdownload_filenames():
+            Returns:
+                List[str]: List of .crdownload filenames in `folder_path`."""
     def __init__(self, folder_path):
-        """Validate that `folder_path` is an existing directory and assign it to the object's `folder_path` attribute.
+        """Initializes a CrdownloadChecker instance with a directory path.
         
         Args:
-            self: The instance to which the attribute will be attached.
-            folder_path (str): Path to validate.
+            folder_path (str): Path to the directory to be inspected.
         
         Raises:
             ValueError: If `folder_path` does not point to an existing directory."""
@@ -136,7 +121,9 @@ class CrdownloadChecker:
             if file.endswith('.crdownload') and os.path.isfile(os.path.join(self.folder_path, file))
         ]
     class DoesNothing:
-        """Placeholder class that intentionally performs no operations."""
+        """Placeholder class that intentionally provides no functionality.
+        
+        This class exists solely as a stub or marker and does not define any attributes or methods."""
         pass
 
 

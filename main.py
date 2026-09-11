@@ -3,13 +3,16 @@ import re
 import ast
 import json
 from groq import Groq
-from typing import cast
+from typing import cast, Any
+import typer
+from pathlib import Path
 
 load_dotenv()
 MAX_CHAR = 15_000
 MAX_CUMULATIVE_CHAR = 4_500
 MAX_BATCH_SIZE = 3
 
+app = typer.Typer()
 def has_documentation(function_string: str) -> bool:
     try:
         tree = ast.parse(function_string.strip(" "))
@@ -128,176 +131,212 @@ def get_sub(content: str, target: str):
         return value
 
 
-# Read source code
-with open("app_test.py", mode="r") as py_file:
-    content = py_file.read()
+def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
+    # Read source code
+    # with open("app_test.py", mode="r") as py_file:
+    #     content = py_file.read()
 
-# Read classes
-classes, new_content = get_class(content)
+    # Read classes
+    classes, new_content = get_class(content)
 
-# Read methods and subclasses
-methods = []
-for class_ in classes.copy():
-    methods.extend(get_funcs(class_, target="function"))
-    sub_classes = get_sub(class_, "class")
-    classes.extend(sub_classes)
+    # Read methods and subclasses
+    methods = []
+    for class_ in classes.copy():
+        methods.extend(get_funcs(class_, target="function"))
+        sub_classes = get_sub(class_, "class")
+        classes.extend(sub_classes)
 
-# Read functions
-functions = get_funcs(new_content)
-i = 0
-for func in functions.copy():
-    sub_func = get_sub(func, "function")
-    functions.extend(sub_func)
-    i += 1
+    # Read functions
+    functions = get_funcs(new_content)
+    i = 0
+    for func in functions.copy():
+        sub_func = get_sub(func, "function")
+        functions.extend(sub_func)
+        i += 1
 
-pre_filter = []
-pre_filter.extend(classes)
-pre_filter.extend(methods)
-pre_filter.extend(functions)
+    pre_filter = []
+    pre_filter.extend(classes)
+    pre_filter.extend(methods)
+    pre_filter.extend(functions)
 
-filtered = {}
-batched = []
-track = MAX_BATCH_SIZE
-id_ = 0
+    filtered = {}
+    batched = []
+    track = MAX_BATCH_SIZE
+    id_ = 0
 
-for obj in pre_filter:
-    if has_documentation(obj):
-        print("Has doc")
-    elif len(obj) > MAX_CHAR:
-        print("Function too large!!")
-    else:
-        if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
-            batched.append(f"obj_{id_}\n{obj}")
-            filtered[f"obj_{id_}"] = obj
-            track = 1
-        else:   #I.e len(batched[-1]) + len(obj) <= MAX_CHAR:
-            batched[-1] += f"\n\nobj_{id_}\n{obj}"
-            filtered[f"obj_{id_}"] = obj
-            track += 1
-        id_ += 1
+    for obj in pre_filter:
+        if has_documentation(obj):
+            pass
+            # print("Has doc")
+        elif len(obj) > MAX_CHAR:
+            print("Function too large!!")
+        else:
+            if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
+                batched.append(f"obj_{id_}\n{obj}")
+                filtered[f"obj_{id_}"] = obj
+                track = 1
+            else:  # I.e len(batched[-1]) + len(obj) <= MAX_CHAR:
+                batched[-1] += f"\n\nobj_{id_}\n{obj}"
+                filtered[f"obj_{id_}"] = obj
+                track += 1
+            id_ += 1
+    return content, batched, filtered
 
-with open("notes.txt", mode="w") as notes:
-    for i in filtered:
-        notes.write(i)
 
-client = Groq()
+def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
+    client = Groq()
 
-system_prompt =  """
-You are an excellent senior developer with 15+ years of experience in creating and documenting codes, apis, functions, classes and more.
-Generate industry-standard documentation for the Python (functions, methods, classes, etc) provided below.
+    system_prompt = """
+    You are an excellent senior developer with 15+ years of experience in creating and documenting codes, apis, functions, classes and more.
+    Generate industry-standard documentation for the Python (functions, methods, classes, etc) provided below.
 
-Analyze the function's signature, implementation, parameters, return behavior,
-exceptions, side effects, and overall purpose before writing the documentation.
+    Analyze the function's signature, implementation, parameters, return behavior,
+    exceptions, side effects, and overall purpose before writing the documentation.
 
-Use only information that can be reasonably inferred from the function and its
-implementation. Do not invent behavior, parameters, exceptions, or guarantees
-that are not supported by the code.
+    Use only information that can be reasonably inferred from the function and its
+    implementation. Do not invent behavior, parameters, exceptions, or guarantees
+    that are not supported by the code.
 
-Use the Google documentation style
-Write a complete, accurate, and concise docstring appropriate for production code.
+    Use the Google documentation style
+    Write a complete, accurate, and concise docstring appropriate for production code.
 
-Return the documentation only. Do not return or reproduce the Python function or include `def func()`).
-Your response should contain the  id of the object the string belongs to, the style and docstring itself as shown in the example below.
+    Return the documentation only. Do not return or reproduce the Python function or include `def func()`).
+    Your response should contain the  id of the object the string belongs to, the style and docstring itself as shown in the example below.
 
-Return the result as a JSON object with exactly these fields:
+    Return the result as a JSON object with exactly these fields:
 
-[
-{
-    "id": "obj_1",
-    "style": "Google",
-    "docstring": "Prints users desire.\n\nArgs:..."
-},
-.
-.
-]
-"""
+    [
+    {
+        "id": "obj_1",
+        "style": "Google",
+        "docstring": "Prints users desire.\n\nArgs:..."
+    },
+    .
+    .
+    ]
+    """
+    cum_res = []
+    for func in batched_obj:
+        # noinspection bad-argument-type
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": f"""
+                    Here is the python function to document: {func}"""
+                }
+            ],
+            temperature=0.4,
+            max_completion_tokens=4096,
+            top_p=1,
+            reasoning_effort="medium",
+            stream=False,
+            stop=None,
 
-updated_code = content
-print(len(batched))
-for func in batched:
-    # print("in")
-    # print(func)
-    # noinspection bad-argument-type
-    completion = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": f"""
-                Here is the python function to document: {func}"""
-            }
-        ],
-        temperature=0.4,
-        max_completion_tokens=4096,
-        top_p=1,
-        reasoning_effort="medium",
-        stream=False,
-        stop=None,
-
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "documentation_response",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "items": {
-                            "type": "array",
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "documentation_response",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
                             "items": {
-                                "type": "object",
-                                "properties": {
-                                    "id": {
-                                        "type": "string"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "style": {
+                                            "type": "string"
+                                        },
+                                        "docstring": {
+                                            "type": "string"
+                                        }
                                     },
-                                    "style": {
-                                        "type": "string"
-                                    },
-                                    "docstring": {
-                                        "type": "string"
-                                    }
-                                },
-                                "required": [
-                                    "id",
-                                    "style",
-                                    "docstring"
-                                ],
-                                "additionalProperties": False
+                                    "required": [
+                                        "id",
+                                        "style",
+                                        "docstring"
+                                    ],
+                                    "additionalProperties": False
+                                }
                             }
-                        }
-                    },
-                    "required": [
-                        "items"
-                    ],
-                    "additionalProperties": False
+                        },
+                        "required": [
+                            "items"
+                        ],
+                        "additionalProperties": False
+                    }
                 }
             }
-        }
-    )
+        )
 
-    response = completion.choices[0].message.content
-    print(response)
-    res = json.loads(response)
-    print(res)
-    # try:
-    #     res = ast.literal_eval(response)
-    # except SyntaxError as err:
-    #     print("Syntax Error:", err)
-    #     exit()
+        response = completion.choices[0].message.content
+        res = json.loads(response)
+        cum_res.append(res)
+    return cum_res
 
-    for doc in res.get("items", []):
-        docs = doc.get("docstring")
-        docs = docs.removeprefix('\"\"\"')
-        docs = docs[:-2].removesuffix('\"\"\"') + docs[-2:]
-        old_obj = filtered.get(doc.get("id", ""))
 
-        new_func = insert_documentation(cast(str, old_obj), docs)
-        updated_code = replace_multiline_string(cast(str, old_obj), updated_code, new_func)
+def update_file(llm_res: list, content: str, original: dict, file: Path):
+    updated_code = content
+    # llm_res = [item for list_ in llm_res for item in list_]
+    for res in llm_res:
+        for doc in res.get("items", []):
+            docs = doc.get("docstring")
+            docs = docs.removeprefix('\"\"\"')
+            docs = docs[:-2].removesuffix('\"\"\"') + docs[-2:]
+            old_obj = original.get(doc.get("id", ""))
 
-with open("app_test.py", mode="w") as py_file:
-    py_file.write(updated_code)
+            new_func = insert_documentation(cast(str, old_obj), docs)
+            updated_code = replace_multiline_string(cast(str, old_obj), updated_code, new_func)
+    file.write_text(updated_code, encoding="utf-8")
 
+    # with open("app_test.py", mode="w") as py_file:
+    #     py_file.write(updated_code)
+
+
+@app.command()
+def show(typ: str):
+    if typ == "func":
+        print("THe number of functions found is:", len(2))
+    elif typ == "class":
+        print("THe number of classes found is:", len(3))
+
+@app.command()
+def run(file: Path):
+    path = Path(file)
+    if not path.exists():
+        typer.echo(f"Error: file '{file}' does not exist.", err=True)
+        raise typer.Exit(code=1)
+
+    if not path.is_file():
+        typer.echo(f"Error: '{file}' is not a file.", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        content = path.read_text(encoding="utf-8")
+        source_code, batch_obj, obj_dict = parse_source(content)
+        documentation = generate_doc(batch_obj)
+        update_file(documentation, source_code, obj_dict, path)
+    except PermissionError:
+        typer.echo(
+            f"Error: permission denied when reading/writing '{file}'.",
+            err=True
+        )
+        raise typer.Exit(code=1)
+    except Exception as e:
+        with open("__error.txt", mode="w") as error_file:
+            error_file.write(f"DocDocGo Error:\n\n{str(e)}")
+
+
+
+if __name__ == "__main__":
+    app()
