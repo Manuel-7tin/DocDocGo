@@ -6,6 +6,7 @@ from groq import Groq
 from typing import cast, Any
 import typer
 from pathlib import Path
+import textwrap
 
 load_dotenv()
 MAX_CHAR = 15_000
@@ -28,48 +29,65 @@ def has_documentation(function_string: str) -> bool:
 
 def get_funcs(content: str, target: str = "function") -> list[str]:
     if target == "function":
+        find = (ast.FunctionDef, ast.AsyncFunctionDef)
         match_str = r"^(\s*)def\s+\w+\s*\("
     elif target == "class":
+        find = tuple([ast.ClassDef])
         match_str = r"^(\s*)class\s+\w+\s*"
+    else:
+        return []
     lines = content.splitlines()
     functions = []
 
     i = 0
-    while i < len(lines):
-        line = lines[i]
+    # while i < len(lines):
+    #     line = lines[i]
+    #
+    #     # Match a function definition, allowing leading whitespace.
+    #     match = re.match(match_str, line)
+    #
+    #     if match:
+    #         def_indent = len(match.group(1).expandtabs(4))
+    #         block = [line]
+    #         i += 1
+    #
+    #         while i < len(lines):
+    #             current = lines[i]
+    #
+    #             # Keep blank lines inside the function.
+    #             if not current.strip():
+    #                 block.append(current)
+    #                 i += 1
+    #                 continue
+    #
+    #             current_indent = len(current) - len(current.lstrip())
+    #
+    #             # Function ended when we return to the def's indentation
+    #             # or lower.
+    #             if current_indent <= def_indent and current[-1] != ":":
+    #                 break
+    #
+    #             block.append(current)
+    #             i += 1
+    #
+    #         functions.append("\n".join(block))
+    #         continue
+    #
+    #     i += 1
 
-        # Match a function definition, allowing leading whitespace.
-        match = re.match(match_str, line)
+    dedent_code = textwrap.dedent(content)
+    tree = ast.parse(dedent_code)
 
-        if match:
-            def_indent = len(match.group(1).expandtabs(4))
-            block = [line]
-            i += 1
+    for node in ast.walk(tree):
+        if isinstance(node, find):
+            lines = content.splitlines(keepends=True)
 
-            while i < len(lines):
-                current = lines[i]
+            # Original source, not ast.unparse()
+            function_source = "".join(
+                lines[node.lineno - 1:node.end_lineno]
+            )
 
-                # Keep blank lines inside the function.
-                if not current.strip():
-                    block.append(current)
-                    i += 1
-                    continue
-
-                current_indent = len(current) - len(current.lstrip())
-
-                # Function ended when we return to the def's indentation
-                # or lower.
-                if current_indent <= def_indent:
-                    break
-
-                block.append(current)
-                i += 1
-
-            functions.append("\n".join(block))
-            continue
-
-        i += 1
-
+            functions.append(function_source)
     return functions
 
 
@@ -117,7 +135,7 @@ def get_sub(content: str, target: str):
     # target should be either "function" or "class"
     try:
         next_line = content.index(":")
-        functions_ = get_funcs(content[next_line:], target)
+        functions_ = get_funcs(content[next_line+1:], target)
         # split_content = content.split("\n", 1)[1]
         # functions_ = get_funcs(split_content, target)
         value = []
@@ -139,7 +157,6 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
     # Read classes
     classes, new_content = get_class(content)
 
-    # Read methods and subclasses
     methods = []
     for class_ in classes.copy():
         methods.extend(get_funcs(class_, target="function"))
@@ -147,6 +164,7 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
         classes.extend(sub_classes)
 
     # Read functions
+
     functions = get_funcs(new_content)
     i = 0
     for func in functions.copy():
@@ -186,35 +204,82 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
 def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
     client = Groq()
 
+    # old_system_prompt = """
+    # You are an excellent senior developer with 15+ years of experience in creating and documenting codes, apis, functions, classes and more.
+    # Generate industry-standard documentation for the Python (functions, methods, classes, etc) provided below.
+    #
+    # Analyze the function's signature, implementation, parameters, return behavior,
+    # exceptions, side effects, and overall purpose before writing the documentation.
+    #
+    # Use only information that can be reasonably inferred from the function and its
+    # implementation. Do not invent behavior, parameters, exceptions, or guarantees
+    # that are not supported by the code.
+    #
+    # Use the Google documentation style
+    # Write a complete, accurate, and concise docstring appropriate for production code.
+    #
+    # Return the documentation only. Do not return or reproduce the Python function or include `def func()`).
+    # Your response should contain the  id of the object the string belongs to, the style and docstring itself as shown in the example below.
+    #
+    # Return the result as a JSON object with exactly these fields:
+    #
+    # [
+    # {
+    #     "id": "obj_1",
+    #     "style": "Google",
+    #     "docstring": "Prints users desire.\n\nArgs:..."
+    # },
+    # .
+    # .
+    # ]
+    # """
     system_prompt = """
-    You are an excellent senior developer with 15+ years of experience in creating and documenting codes, apis, functions, classes and more.
-    Generate industry-standard documentation for the Python (functions, methods, classes, etc) provided below.
+    You are an expert Python developer specializing in writing accurate,
+    production-quality documentation.
 
-    Analyze the function's signature, implementation, parameters, return behavior,
-    exceptions, side effects, and overall purpose before writing the documentation.
+    Your task is to generate a Google-style docstring for each Python object
+    provided to you.
 
-    Use only information that can be reasonably inferred from the function and its
-    implementation. Do not invent behavior, parameters, exceptions, or guarantees
-    that are not supported by the code.
+    Before generating the documentation, analyze each object's:
+    - signature
+    - implementation
+    - parameters
+    - return behavior
+    - raised exceptions
+    - side effects
+    - overall purpose
 
-    Use the Google documentation style
-    Write a complete, accurate, and concise docstring appropriate for production code.
+    Only document behavior that is supported by the provided code.
+    Do not invent parameters, return values, exceptions, side effects,
+    guarantees, or behavior.
 
-    Return the documentation only. Do not return or reproduce the Python function or include `def func()`).
-    Your response should contain the  id of the object the string belongs to, the style and docstring itself as shown in the example below.
+    OUTPUT REQUIREMENTS — FOLLOW EXACTLY:
 
-    Return the result as a JSON object with exactly these fields:
-
+    1. Return ONLY valid JSON.
+    2. Return a JSON array.
+    3. Return exactly one array item for every input object.
+    4. Preserve every input object's `id` exactly as provided.
+    5. Each array item MUST contain exactly these three fields:
+       - "id"
+       - "style"
+       - "docstring"
+    6. "style" MUST always be "Google".
+    7. "docstring" MUST contain only the documentation text.
+    8. Do NOT include triple quotes around the docstring.
+    9. Do NOT include Markdown code fences.
+    10. Do NOT reproduce, modify, or return any Python source code.
+    11. Do NOT include explanations, comments, or additional text outside the JSON array.
+    12. Do NOT omit any input object.
+    The output must have exactly this structure:
+    
     [
-    {
-        "id": "obj_1",
-        "style": "Google",
-        "docstring": "Prints users desire.\n\nArgs:..."
-    },
-    .
-    .
+        {
+            "id": "obj_1",
+            "style": "Google",
+            "docstring": "Description.\n\nArgs:\n    ..."
+        }
     ]
-    """
+"""
     cum_res = []
     for func in batched_obj:
         # noinspection bad-argument-type
@@ -228,56 +293,56 @@ def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
                 {
                     "role": "user",
                     "content": f"""
-                    Here is the python function to document: {func}"""
-                }
-            ],
-            temperature=0.4,
-            max_completion_tokens=4096,
-            top_p=1,
-            reasoning_effort="medium",
-            stream=False,
-            stop=None,
+                        Here is the python function to document: {func}"""
+                    }
+                ],
+                temperature=0.4,
+                max_completion_tokens=4096,
+                top_p=1,
+                reasoning_effort="medium",
+                stream=False,
+                stop=None,
 
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "documentation_response",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "items": {
-                                "type": "array",
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "documentation_response",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
                                 "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "id": {
-                                            "type": "string"
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "type": "string"
+                                            },
+                                            "style": {
+                                                "type": "string"
+                                            },
+                                            "docstring": {
+                                                "type": "string"
+                                            }
                                         },
-                                        "style": {
-                                            "type": "string"
-                                        },
-                                        "docstring": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "required": [
-                                        "id",
-                                        "style",
-                                        "docstring"
-                                    ],
-                                    "additionalProperties": False
+                                        "required": [
+                                            "id",
+                                            "style",
+                                            "docstring"
+                                        ],
+                                        "additionalProperties": False
+                                    }
                                 }
-                            }
-                        },
-                        "required": [
-                            "items"
-                        ],
-                        "additionalProperties": False
+                            },
+                            "required": [
+                                "items"
+                            ],
+                            "additionalProperties": False
+                        }
                     }
                 }
-            }
-        )
+            )
 
         response = completion.choices[0].message.content
         res = json.loads(response)
@@ -326,6 +391,7 @@ def run(file: Path):
         source_code, batch_obj, obj_dict = parse_source(content)
         documentation = generate_doc(batch_obj)
         update_file(documentation, source_code, obj_dict, path)
+        print("Success")
     except PermissionError:
         typer.echo(
             f"Error: permission denied when reading/writing '{file}'.",
@@ -335,6 +401,7 @@ def run(file: Path):
     except Exception as e:
         with open("__error.txt", mode="w") as error_file:
             error_file.write(f"DocDocGo Error:\n\n{str(e)}")
+        raise typer.Exit(code=1)
 
 
 
