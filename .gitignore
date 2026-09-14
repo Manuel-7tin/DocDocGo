@@ -3,4 +3,4 @@ notes.txt
 .idea/
 issues.txt
 __error.txt
-test1.py
+tests/test1.py

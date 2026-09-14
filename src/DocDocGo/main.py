@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-import re
 import ast
 import json
 from groq import Groq
@@ -97,6 +96,8 @@ def replace_multiline_string(
     replacement: str
 ) -> str:
     if original not in larger:
+        print(original)
+        print(larger)
         raise ValueError("Original string was not found in larger string.")
 
     return larger.replace(original, replacement, 1)
@@ -398,10 +399,10 @@ def run(file: Path):
             err=True
         )
         raise typer.Exit(code=1)
-    except Exception as e:
-        with open("__error.txt", mode="w") as error_file:
-            error_file.write(f"DocDocGo Error:\n\n{str(e)}")
-        raise typer.Exit(code=1)
+    # except Exception as e:
+    #     with open("__error.txt", mode="w") as error_file:
+    #         error_file.write(f"DocDocGo Error:\n\n{str(e)}")
+    #     raise typer.Exit(code=1)
 
 
 

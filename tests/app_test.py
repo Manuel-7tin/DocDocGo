@@ -24,9 +24,6 @@ def extract_name(name, pp):
         if pp.lower() in split_name[0].lower() and len(split_name[0]) < len(pp) + 3:
             name = " ".join([item for item in split_name if split_name.index(item) != 0])
     def status():
-        """Prints a status message indicating the function is operational.
-
-        This function has no arguments and returns ``None``. It writes the string ``"i am working"`` to standard output."""
         print("i am working")
 
     if split_name[0].lower() == "dip" or "dipif" in split_name[0].lower():
