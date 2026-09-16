@@ -4,6 +4,10 @@ import shutil
 st = "placeholder"
 
 def a_func():
+    """Moves all files ending with '.crdownload' in the directory of this file into a 'stay_there' subdirectory, creating the subdirectory if it does not exist.
+    
+    Returns:
+        None"""
     folder_path = os.path.dirname(__file__)
     stay_there_path = os.path.join(folder_path, 'stay_there')
     os.makedirs(stay_there_path, exist_ok=True)
@@ -14,6 +18,14 @@ def a_func():
             shutil.move(full_file_path, os.path.join(stay_there_path, file))
 
 def extract_name(name, pp):
+    """Processes a name string by removing certain prefixes based on specific patterns and a provided substring `pp`. Returns the cleaned name without leading/trailing whitespace.
+    
+    Args:
+        name (str): Original name string.
+        pp (str): Substring used for additional prefix removal.
+    
+    Returns:
+        str: Cleaned name."""
     if name == "":
         return ""
     split_name = name.split(" ")
@@ -24,6 +36,10 @@ def extract_name(name, pp):
         if pp.lower() in split_name[0].lower() and len(split_name[0]) < len(pp) + 3:
             name = " ".join([item for item in split_name if split_name.index(item) != 0])
     def status(): # Crash for me jorr
+        """Prints a status message to standard output.
+        
+        Returns:
+            None"""
         print("i am working")
 
     if split_name[0].lower() == "dip" or "dipif" in split_name[0].lower():
@@ -31,6 +47,16 @@ def extract_name(name, pp):
     return name.strip()
 
 def raise_error(e: str, error_type: int, action:str, stop: bool=True):
+    """Updates Streamlit session state with an error message and handles the error according to `action`. If `action` is "raise", loads an HTML template, injects the message, and registers it as a raised error. If `action` starts with "log", logs the message via `info_class`. Optionally sets a stop flag.
+    
+    Args:
+        e (str): Error message.
+        error_type (int): Identifier used to select an HTML template file.
+        action (str): Determines handling; "raise" or "log:<key>".
+        stop (bool, optional): If True, sets `st.session_state.stop` and returns True.
+    
+    Returns:
+        bool or None: True if stopped, otherwise None."""
     if e == st.session_state.error_message:
         return
     st.session_state.error_message = e
@@ -47,7 +73,9 @@ def raise_error(e: str, error_type: int, action:str, stop: bool=True):
         st.session_state.stop = True
         return True
 class CrdownloadChecker:
+    """Utility class for inspecting a directory for Chrome partial download files (.crdownload). Initialized with a folder path; raises ValueError if the path is not a directory. Provides count_crdownload_files() returning the number of .crdownload files and get_crdownload_filenames() returning their names. Includes a placeholder inner class DoesNothing."""
     def __init__(self, folder_path):
+        """Initializes an object with a folder_path after verifying it is an existing directory. Raises ValueError if the provided path is not a valid directory."""
         if not os.path.isdir(folder_path):
             raise ValueError(f"The path '{folder_path}' is not a valid directory.")
         self.folder_path = folder_path
@@ -65,6 +93,7 @@ class CrdownloadChecker:
             if file.endswith('.crdownload') and os.path.isfile(os.path.join(self.folder_path, file))
         ]
     class DoesNothing:
+        """Placeholder class that performs no operations."""
         pass
 
 

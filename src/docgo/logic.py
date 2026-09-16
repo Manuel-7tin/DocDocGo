@@ -178,8 +178,8 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
     classes, new_content = get_class(content)
 
     methods = []
-    # for class_ in classes.copy():
-    #     methods.extend(get_funcs(class_, target="function"))
+    for class_ in classes.copy():
+        methods.extend(get_funcs(class_, target="function"))
     #     sub_classes = get_sub(class_, "class")
     #     classes.extend(sub_classes)
 
@@ -222,8 +222,8 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
     return content, batched, filtered
 
 
-def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
-    client = Groq()
+def generate_doc(key:str, batched_obj: list, size) -> list[dict[Any, Any] | None]:
+    client = Groq(api_key=key)
 
     # old_system_prompt = """
     # You are an excellent senior developer with 15+ years of experience in creating and documenting codes, apis, functions, classes and more.
@@ -254,7 +254,10 @@ def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
     # .
     # ]
     # """
-    system_prompt = """
+    extra = ""
+    if size.lower() == "minimal":
+        extra = "13. Keep the docstring under 400 characters, concise, not cut short and not exceeding 400 characters."
+    system_prompt = f"""
     You are an expert Python developer specializing in writing accurate,
     production-quality documentation.
 
@@ -291,14 +294,15 @@ def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
     10. Do NOT reproduce, modify, or return any Python source code.
     11. Do NOT include explanations, comments, or additional text outside the JSON array.
     12. Do NOT omit any input object.
+    {extra}
     The output must have exactly this structure:
 
     [
-        {
+        {{
             "id": "obj_1",
             "style": "Google",
             "docstring": "Description.\n\nArgs:\n    ..."
-        }
+        }}
     ]
 """
     cum_res = []
