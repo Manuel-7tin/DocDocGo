@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-DocDocGo = "docdocgo.main:run"
+DocDocGo = "docdocgo.cli:app"
 
 [project.urls]
 "Homepage" = "https://github.com/Manuel-7tin/DocDocGo/blob/main/main.py"

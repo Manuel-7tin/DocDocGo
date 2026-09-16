@@ -1,18 +1,15 @@
-from dotenv import load_dotenv
 import ast
 import json
-from groq import Groq
-from typing import cast, Any
-import typer
-from pathlib import Path
 import textwrap
+from groq import Groq
+from pathlib import Path
+from typing import cast, Any
 
-load_dotenv()
 MAX_CHAR = 15_000
 MAX_CUMULATIVE_CHAR = 4_500
 MAX_BATCH_SIZE = 3
 
-app = typer.Typer()
+
 def has_documentation(function_string: str) -> bool:
     try:
         tree = ast.parse(function_string.strip(" "))
@@ -26,6 +23,20 @@ def has_documentation(function_string: str) -> bool:
     return False
 
 
+def remove_function_definition(source: str) -> str:
+    tree = ast.parse(source)
+
+    func = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+
+    lines = source.splitlines(keepends=True)
+
+    # The function body starts on the line after the `def ...:` header.
+    return "".join(lines[func.body[0].lineno - 1:])
+
+
 def get_funcs(content: str, target: str = "function") -> list[str]:
     if target == "function":
         find = (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -35,7 +46,7 @@ def get_funcs(content: str, target: str = "function") -> list[str]:
         match_str = r"^(\s*)class\s+\w+\s*"
     else:
         return []
-    lines = content.splitlines()
+    # lines = content.splitlines()
     functions = []
 
     i = 0
@@ -91,13 +102,14 @@ def get_funcs(content: str, target: str = "function") -> list[str]:
 
 
 def replace_multiline_string(
-    original: str,
-    larger: str,
-    replacement: str
+        original: str,
+        larger: str,
+        replacement: str
 ) -> str:
     if original not in larger:
-        print(original)
-        print(larger)
+        # print(original)
+        # print("------------_____________------------")
+        # print(larger)
         raise ValueError("Original string was not found in larger string.")
 
     return larger.replace(original, replacement, 1)
@@ -111,7 +123,7 @@ def insert_documentation(function: str, documentation: str) -> str:
             index = lines.index(line)
             break
 
-    first_indent = lines[index+1]
+    first_indent = lines[index + 1]
     indentation = first_indent[:len(first_indent) - len(first_indent.lstrip())]
     documentation = f'"""{documentation}"""'
 
@@ -123,20 +135,27 @@ def insert_documentation(function: str, documentation: str) -> str:
         return documentation
     # print("ranr", lines[-1])
 
-    return "\n".join([*lines[:index+1], documentation, *lines[index+1:-1], lines[-1]+"\n"])
+    return "\n".join([*lines[:index + 1], documentation, *lines[index + 1:-1], lines[-1] + "\n"])
+
 
 def get_class(content: str) -> tuple[list[str], str]:
-    functions = get_funcs(content, target="class")
+    classes = get_funcs(content, target="class")
+    # print(content)
+    # print("++++++===========+++++++")
     new_content = content
-    for func in functions:
-        new_content = replace_multiline_string(func, new_content, "")
-    return (functions, new_content)
+    for class_ in classes:
+        try:
+            new_content = replace_multiline_string(class_, new_content, "")
+        except ValueError:
+            pass
+    return (classes, new_content)
+
 
 def get_sub(content: str, target: str):
     # target should be either "function" or "class"
     try:
-        next_line = content.index(":")
-        functions_ = get_funcs(content[next_line+1:], target)
+        next_line = content.index(":\n")
+        functions_ = get_funcs(content[next_line + 1:], target)
         # split_content = content.split("\n", 1)[1]
         # functions_ = get_funcs(split_content, target)
         value = []
@@ -159,19 +178,19 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
     classes, new_content = get_class(content)
 
     methods = []
-    for class_ in classes.copy():
-        methods.extend(get_funcs(class_, target="function"))
-        sub_classes = get_sub(class_, "class")
-        classes.extend(sub_classes)
+    # for class_ in classes.copy():
+    #     methods.extend(get_funcs(class_, target="function"))
+    #     sub_classes = get_sub(class_, "class")
+    #     classes.extend(sub_classes)
 
     # Read functions
 
     functions = get_funcs(new_content)
     i = 0
-    for func in functions.copy():
-        sub_func = get_sub(func, "function")
-        functions.extend(sub_func)
-        i += 1
+    # for func in functions.copy():
+    #     sub_func = get_sub(func, "function")
+    #     functions.extend(sub_func)
+    #     i += 1
 
     pre_filter = []
     pre_filter.extend(classes)
@@ -189,6 +208,7 @@ def parse_source(content: str) -> tuple[str, list[str], dict[Any, Any]]:
             # print("Has doc")
         elif len(obj) > MAX_CHAR:
             print("Function too large!!")
+            raise OverflowError("Function too large!!")
         else:
             if track == MAX_BATCH_SIZE or len(batched[-1]) + len(obj) > MAX_CHAR:
                 batched.append(f"obj_{id_}\n{obj}")
@@ -272,7 +292,7 @@ def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
     11. Do NOT include explanations, comments, or additional text outside the JSON array.
     12. Do NOT omit any input object.
     The output must have exactly this structure:
-    
+
     [
         {
             "id": "obj_1",
@@ -295,55 +315,55 @@ def generate_doc(batched_obj: list) -> list[dict[Any, Any] | None]:
                     "role": "user",
                     "content": f"""
                         Here is the python function to document: {func}"""
-                    }
-                ],
-                temperature=0.4,
-                max_completion_tokens=4096,
-                top_p=1,
-                reasoning_effort="medium",
-                stream=False,
-                stop=None,
+                }
+            ],
+            temperature=0.4,
+            max_completion_tokens=4096,
+            top_p=1,
+            reasoning_effort="medium",
+            stream=False,
+            stop=None,
 
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "documentation_response",
-                        "strict": True,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "documentation_response",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "items": {
+                                "type": "array",
                                 "items": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "id": {
-                                                "type": "string"
-                                            },
-                                            "style": {
-                                                "type": "string"
-                                            },
-                                            "docstring": {
-                                                "type": "string"
-                                            }
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
                                         },
-                                        "required": [
-                                            "id",
-                                            "style",
-                                            "docstring"
-                                        ],
-                                        "additionalProperties": False
-                                    }
+                                        "style": {
+                                            "type": "string"
+                                        },
+                                        "docstring": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "style",
+                                        "docstring"
+                                    ],
+                                    "additionalProperties": False
                                 }
-                            },
-                            "required": [
-                                "items"
-                            ],
-                            "additionalProperties": False
-                        }
+                            }
+                        },
+                        "required": [
+                            "items"
+                        ],
+                        "additionalProperties": False
                     }
                 }
-            )
+            }
+        )
 
         response = completion.choices[0].message.content
         res = json.loads(response)
@@ -362,49 +382,15 @@ def update_file(llm_res: list, content: str, original: dict, file: Path):
             old_obj = original.get(doc.get("id", ""))
 
             new_func = insert_documentation(cast(str, old_obj), docs)
+            # print(old_obj)
+            # print("_________________-------______________")
+            # print(updated_code)
+            # print("_________________-------______________")
+            # print(new_func)
+            # print("_________________-------______________")
             updated_code = replace_multiline_string(cast(str, old_obj), updated_code, new_func)
+            # print("::::::;;;;;;;;;;;;;;;;:::::::::")
     file.write_text(updated_code, encoding="utf-8")
 
     # with open("app_test.py", mode="w") as py_file:
     #     py_file.write(updated_code)
-
-
-@app.command()
-def show(typ: str):
-    if typ == "func":
-        print("THe number of functions found is:", len(2))
-    elif typ == "class":
-        print("THe number of classes found is:", len(3))
-
-@app.command()
-def run(file: Path):
-    path = Path(file)
-    if not path.exists():
-        typer.echo(f"Error: file '{file}' does not exist.", err=True)
-        raise typer.Exit(code=1)
-
-    if not path.is_file():
-        typer.echo(f"Error: '{file}' is not a file.", err=True)
-        raise typer.Exit(code=1)
-
-    try:
-        content = path.read_text(encoding="utf-8")
-        source_code, batch_obj, obj_dict = parse_source(content)
-        documentation = generate_doc(batch_obj)
-        update_file(documentation, source_code, obj_dict, path)
-        print("Success")
-    except PermissionError:
-        typer.echo(
-            f"Error: permission denied when reading/writing '{file}'.",
-            err=True
-        )
-        raise typer.Exit(code=1)
-    # except Exception as e:
-    #     with open("__error.txt", mode="w") as error_file:
-    #         error_file.write(f"DocDocGo Error:\n\n{str(e)}")
-    #     raise typer.Exit(code=1)
-
-
-
-if __name__ == "__main__":
-    app()
