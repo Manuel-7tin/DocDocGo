@@ -5,3 +5,4 @@ issues.txt
 __error.txt
 dist/
 *__pycache__/
+src/docdocpy.egg-info/

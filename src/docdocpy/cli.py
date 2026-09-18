@@ -1,6 +1,8 @@
 import typer
 from enum import Enum
 from pathlib import Path
+import importlib.metadata
+from typing import Optional, Annotated
 from dotenv import load_dotenv
 from docdocpy.config import get_api_key, save_api_key
 from docdocpy.logic import parse_source, generate_doc, update_file
@@ -8,6 +10,7 @@ from docdocpy.logic import parse_source, generate_doc, update_file
 load_dotenv()
 
 app = typer.Typer()
+__version__ = importlib.metadata.version("DocDocPy")
 
 
 class SizeOptions(str, Enum):
@@ -21,7 +24,7 @@ def get_or_create_api_key() -> str:
     if api_key:
         return api_key
 
-    typer.echo("DocGo needs an API key to work.")
+    typer.echo("DocDocPy needs an API key to work.")
     api_key = typer.prompt("Enter your Groq API key", hide_input=True)
 
     save_api_key(api_key)
@@ -31,28 +34,50 @@ def get_or_create_api_key() -> str:
     return api_key
 
 
-@app.command()
-def show(typ: str):
-    if typ == "func":
-        print("THe number of functions found is:", len(2))
-    elif typ == "class":
-        print("THe number of classes found is:", len(3))
+def version_callback(value: bool):
+    if value:
+        print(f"DocDocPy version: {__version__}")
+        raise typer.Exit()
+
+
+# @app.command()
+# def version(typ: str):
+#     if typ == "func":
+#         print("THe number of functions found is:", )
+#     elif typ == "class":
+#         print("THe number of classes found is:", )
+
 
 @app.callback(invoke_without_command=True)
 def run(
         ctx: typer.Context,
         file: Path,
-        size: SizeOptions = typer.Option(
-            SizeOptions.DEFAULT,
-            help="The processing size constraint for the file parsing window."
-        )
+        # size: SizeOptions = typer.Option(
+        #     SizeOptions.DEFAULT,
+        #     help="The processing size constraint for the file parsing window."
+        # ),
+        # version: Optional[bool] = typer.Option(
+        #     None,
+        #     "--version",
+        #     "-v",
+        #     callback=version_callback,
+        #     is_eager=True,
+        #     help="Show the application's version and exit.",
+        # ),
+        size: Annotated[SizeOptions, typer.Option(help="The processing size constraint for the file parsing window.")] = SizeOptions.DEFAULT,
+        version: Annotated[Optional[bool], typer.Option("--version", "-v", callback=version_callback, is_eager=True, help="Show the application's version and exit.")] = None,
+
 ):
     path = Path(file)
     if not path.exists():
-        typer.echo(ctx.get_help())
-        return
+        typer.secho(f"❌ Error: The file '{path}' does not exist.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
         # typer.echo(f"Error: file '{file}' does not exist.", err=True)
         # raise typer.Exit(code=1)
+    if path.suffix.lower() != ".py":
+        typer.secho("❌ Error: Invalid file type. Only Python files (.py) are allowed for now.", fg=typer.colors.RED,
+                    err=True)
+        raise typer.Exit(code=1)
 
     if not path.is_file():
         typer.echo(f"Error: '{file}' is not a file.", err=True)
