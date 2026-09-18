@@ -2,8 +2,8 @@ import typer
 from enum import Enum
 from pathlib import Path
 from dotenv import load_dotenv
-from docgo.config import get_api_key, save_api_key
-from docgo.logic import parse_source, generate_doc, update_file
+from docdocpy.config import get_api_key, save_api_key
+from docdocpy.logic import parse_source, generate_doc, update_file
 
 load_dotenv()
 
@@ -75,7 +75,7 @@ def run(
         raise typer.Exit(code=1)
     # except Exception as e:
     #     with open("__error.txt", mode="w") as error_file:
-    #         error_file.write(f"docgo Error:\n\n{str(e)}")
+    #         error_file.write(f"docdocpy Error:\n\n{str(e)}")
     #     raise typer.Exit(code=1)
 
 

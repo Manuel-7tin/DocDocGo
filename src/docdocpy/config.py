@@ -4,7 +4,7 @@ import json
 from platformdirs import user_config_dir
 
 
-APP_NAME = "docgo"
+APP_NAME = "docdocpy"
 
 
 def get_config_path() -> Path:

@@ -3,3 +3,5 @@ notes.txt
 .idea/
 issues.txt
 __error.txt
+dist/
+*__pycache__/
